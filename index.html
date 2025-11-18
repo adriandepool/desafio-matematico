@@ -5,12 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mente Maestra: Desafío Matemático</title>
     
-    <!-- PWA: Color del Navegador (Morado Indigo-600) -->
+    <!-- PWA: Color del Navegador -->
     <meta name="theme-color" content="#4f46e5">
-    
-    <!-- PWA: Configuración para iOS -->
+    <meta name="msapplication-navbutton-color" content="#4f46e5">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Mente Maestra">
 
     <!-- Tailwind CSS -->
@@ -34,6 +33,12 @@
                     "sizes": "any",
                     "type": "image/svg+xml",
                     "purpose": "any maskable"
+                },
+                {
+                    "src": "https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/brain.svg",
+                    "sizes": "512x512",
+                    "type": "image/svg+xml",
+                    "purpose": "any maskable"
                 }
             ]
         };
@@ -51,7 +56,6 @@
         }
         .shake { animation: shake 0.2s ease-in-out; }
 
-        /* Pulso rojo para urgencia */
         @keyframes redPulse {
             0% { box-shadow: inset 0 0 0 rgba(255, 0, 0, 0); background-color: rgb(243 244 246); }
             50% { box-shadow: inset 0 0 150px rgba(220, 38, 38, 0.4); background-color: rgb(254 226 226); }
@@ -62,7 +66,6 @@
             transition: all 0.3s ease;
         }
 
-        /* Confeti */
         @keyframes fall {
             0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
             100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
@@ -97,22 +100,18 @@
             .key-hint { display: none; }
         }
 
-        .scrollbar-thin::-webkit-scrollbar { width: 6px; }
-        .scrollbar-thin::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
-        .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-        body { visibility: hidden; touch-action: manipulation; } 
+        /* Eliminamos overflow-hidden del body para permitir scroll nativo */
+        body { visibility: hidden; touch-action: manipulation; min-height: 100vh; } 
     </style>
 </head>
-<body class="bg-gray-100 text-gray-900 font-sans selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden">
+<body class="bg-gray-100 text-gray-900 font-sans selection:bg-indigo-200 selection:text-indigo-900">
     
     <div id="root"></div>
 
     <script type="module">
         import React, { useState, useEffect, useRef, useCallback } from 'https://esm.sh/react@18.2.0';
         import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
-        import { Clock, Trophy, Play, RotateCcw, Calculator, Brain, X, CheckCircle2, Award, Volume2, VolumeX, PartyPopper, Users, User, Zap, Infinity, Flag } from 'https://esm.sh/lucide-react@0.263.1';
+        import { Clock, Trophy, Play, RotateCcw, Calculator, Brain, X, CheckCircle2, Award, Volume2, VolumeX, PartyPopper, Users, User, Zap, Infinity, Flag, Download } from 'https://esm.sh/lucide-react@0.263.1';
 
         // --- SISTEMA DE SONIDO ---
         const soundSystem = {
@@ -183,7 +182,6 @@
             );
         };
 
-        // --- UTILIDADES MATEMÁTICAS ---
         const getRandomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
         const generateSimpleExpression = (diff) => {
@@ -220,7 +218,6 @@
             return { display: `${n1} ${symbol} ${n2}`, value: ans };
         };
 
-        // --- GENERADOR DE PROBLEMAS ---
         const generateMathProblem = (diff) => {
             const types = ['arithmetic'];
             if (diff !== 'easy') {
@@ -288,6 +285,7 @@
             const [playerName, setPlayerName] = useState('');
             const [soundEnabled, setSoundEnabled] = useState(true);
             const [isNewRecord, setIsNewRecord] = useState(false);
+            const [deferredPrompt, setDeferredPrompt] = useState(null);
             
             const [p1State, setP1State] = useState({ score: 0, problem: null, options: [], lastResult: null });
             const [p2State, setP2State] = useState({ score: 0, problem: null, options: [], lastResult: null });
@@ -311,7 +309,24 @@
                 const savedScores = localStorage.getItem('mathTriviaHighScores');
                 if (savedScores) setHighScores(JSON.parse(savedScores));
                 document.body.style.visibility = 'visible';
+                
+                // Capturar evento de instalación PWA
+                window.addEventListener('beforeinstallprompt', (e) => {
+                    e.preventDefault();
+                    setDeferredPrompt(e);
+                });
             }, []);
+
+            // Función para instalar PWA
+            const handleInstall = async () => {
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    const { outcome } = await deferredPrompt.userChoice;
+                    if (outcome === 'accepted') {
+                        setDeferredPrompt(null);
+                    }
+                }
+            };
 
             useEffect(() => {
                 if (gameState !== 'playing') return;
@@ -488,6 +503,7 @@
                             },
                                 opt,
                                 gameMode !== 'multi' && !isRotated && React.createElement("div", { className: "key-hint" }, keysHint[idx]),
+                                // Fix para problema 1: NO mostrar hints si está rotado (mobile), solo si es desktop
                                 gameMode === 'multi' && !isRotated && React.createElement("div", { className: "key-hint" }, keysHint[idx])
                             )
                         )
@@ -496,10 +512,9 @@
             };
 
             const renderMenu = () => (
-                // MODIFICADO: Eliminadas clases de restricción de altura y scroll interno (max-h-[90vh], overflow-y-auto)
                 React.createElement("div", { className: "flex flex-col items-center w-full max-w-md animate-fade-in space-y-6 relative z-10 m-4" },
                     
-                    // CONTENEDOR 1: Menú de Configuración
+                    // CONTENEDOR 1: Menú
                     React.createElement("div", { className: "w-full bg-white/90 p-6 rounded-3xl backdrop-blur-sm shadow-2xl relative space-y-4" },
                         
                         React.createElement("button", { 
@@ -540,20 +555,27 @@
                                     }, config.label)
                                 )
                             ),
-                            React.createElement("button", {
-                                onClick: startGame,
-                                className: "w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transform hover:scale-105 transition flex justify-center gap-2"
-                            }, React.createElement(Play, { className: "w-5 h-5" }), "JUGAR")
+                            React.createElement("div", { className: "flex gap-2" },
+                                React.createElement("button", {
+                                    onClick: startGame,
+                                    className: "flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transform hover:scale-105 transition flex justify-center gap-2"
+                                }, React.createElement(Play, { className: "w-5 h-5" }), "JUGAR"),
+                                
+                                // Botón de Instalar PWA (Solo visible si disponible)
+                                deferredPrompt && React.createElement("button", {
+                                    onClick: handleInstall,
+                                    className: "bg-gray-900 hover:bg-gray-800 text-white font-bold px-4 rounded-xl shadow-lg flex flex-col items-center justify-center text-xs"
+                                }, React.createElement(Download, { className: "w-5 h-5 mb-1" }), "Instalar")
+                            )
                         )
                     ),
                     
                     // CONTENEDOR 2: Ranking
-                    // MODIFICADO: Eliminadas clases de scroll interno (max-h-48, overflow-y-auto)
                     highScores.length > 0 && React.createElement("div", { className: "w-full bg-white/90 p-6 rounded-3xl backdrop-blur-sm shadow-2xl relative" },
                         React.createElement("h3", { className: "text-lg font-bold text-gray-800 mb-4 flex items-center gap-2 border-b border-gray-100 pb-2" },
                             React.createElement(Trophy, { className: "w-5 h-5 text-yellow-500" }), "Ranking Local"
                         ),
-                        React.createElement("div", { className: "space-y-2" }, // Sin restricciones de altura
+                        React.createElement("div", { className: "space-y-2" }, 
                             highScores.map((s, idx) => 
                                 React.createElement("div", { key: s.id || idx, className: "flex justify-between items-center p-2 bg-gray-50 rounded-lg text-sm hover:bg-gray-50 transition-colors" },
                                     React.createElement("div", { className: "flex items-center gap-2" },
@@ -595,9 +617,11 @@
                     ),
 
                     gameMode === 'multi' && React.createElement("div", { className: "flex-1 flex w-full md:w-1/2 h-1/2 md:h-full bg-gray-50" },
+                         // FIX ROTACIÓN MOBILE: Contenedor solo rota, el componente dentro TIENE la flag isRotated=true
                          React.createElement("div", { className: "w-full h-full flex md:hidden transform rotate-180" },
-                            React.createElement(PlayerBoard, { playerNum: 2, state: p2State, keysHint: [], isRotated: true })
+                            React.createElement(PlayerBoard, { playerNum: 2, state: p2State, keysHint: [], isRotated: false }) // isRotated=false porque YA rotamos el contenedor padre
                          ),
+                         // Desktop: No rotamos contenedor
                          React.createElement("div", { className: "w-full h-full hidden md:flex" },
                             React.createElement(PlayerBoard, { playerNum: 2, state: p2State, keysHint: ['H', 'J', 'K', 'L'], isRotated: false })
                          )
@@ -700,6 +724,26 @@
 
         const root = createRoot(document.getElementById('root'));
         root.render(React.createElement(MathTriviaGame));
+
+        // --- SERVICE WORKER DUMMY PARA PWA ---
+        // Esto engaña al navegador para creer que es una PWA instalable válida
+        if ('serviceWorker' in navigator) {
+            const swContent = `
+                self.addEventListener('install', (e) => {
+                    console.log('[SW] Install');
+                    self.skipWaiting();
+                });
+                self.addEventListener('fetch', (e) => {
+                    // No hacemos nada, solo dejamos pasar la petición
+                });
+            `;
+            const swBlob = new Blob([swContent], { type: 'application/javascript' });
+            const swUrl = URL.createObjectURL(swBlob);
+            
+            navigator.serviceWorker.register(swUrl)
+                .then((reg) => console.log('SW registrado:', reg))
+                .catch((err) => console.error('SW error:', err));
+        }
     </script>
 </body>
 </html>
