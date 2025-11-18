@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mente Maestra: Desafío Matemático</title>
+    
+    <!-- 1. Cargar Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Estilos personalizados para animaciones -->
+    <style>
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        .shake { animation: shake 0.2s ease-in-out; }
+
+        /* Animación de pulso rojo para urgencia - AHORA MÁS INTENSA Y GLOBAL */
+        @keyframes redPulse {
+            0% { box-shadow: inset 0 0 0 rgba(255, 0, 0, 0); background-color: rgb(243 244 246); } /* gray-100 */
+            50% { box-shadow: inset 0 0 150px rgba(220, 38, 38, 0.4); background-color: rgb(254 226 226); } /* red-100 */
+            100% { box-shadow: inset 0 0 0 rgba(255, 0, 0, 0); background-color: rgb(243 244 246); }
+        }
+        .urgent-pulse-bg { 
+            animation: redPulse 1s infinite; 
+            transition: all 0.3s ease;
+        }
+
+        /* Animación de Confeti */
+        @keyframes fall {
+            0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+        .confetti {
+            position: fixed;
+            width: 12px;
+            height: 12px;
+            top: -20px;
+            z-index: 9999; /* Encima de todo */
+            pointer-events: none;
+        }
+
+        body { visibility: hidden; } 
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-900 font-sans selection:bg-indigo-200 selection:text-indigo-900">
+    
+    <div id="root"></div>
+
+    <script type="module">
+        import React, { useState, useEffect, useRef, useCallback } from 'https://esm.sh/react@18.2.0';
+        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+        import { Clock, Trophy, Play, RotateCcw, Calculator, Brain, X, CheckCircle2, Award, Volume2, VolumeX, PartyPopper } from 'https://esm.sh/lucide-react@0.263.1';
+
+        // --- SISTEMA DE SONIDO (Web Audio API) ---
+        const soundSystem = {
+            ctx: null,
+            init: function() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            },
+            playTone: function(freq, type, duration, time = 0) {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime + time);
+                gain.gain.setValueAtTime(0.1, this.ctx.currentTime + time);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + time + duration);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(this.ctx.currentTime + time);
+                osc.stop(this.ctx.currentTime + time + duration);
+            },
+            playTick: function(urgent = false) {
+                this.init();
+                if (urgent) {
+                    this.playTone(800, 'square', 0.1);
+                } else {
+                    this.playTone(400, 'sine', 0.1);
+                }
+            },
+            playCorrect: function() {
+                this.init();
+                this.playTone(600, 'sine', 0.1);
+                this.playTone(1200, 'sine', 0.2, 0.1);
+            },
+            playWrong: function() {
+                this.init();
+                this.playTone(150, 'sawtooth', 0.3);
+            },
+            playGameOver: function() {
+                this.init();
+                this.playTone(300, 'triangle', 0.5);
+                this.playTone(250, 'triangle', 0.5, 0.4);
+                this.playTone(200, 'triangle', 1.0, 0.8);
+            },
+            playWin: function() {
+                this.init();
+                [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+                    this.playTone(freq, 'square', 0.2, i * 0.15);
+                });
+                this.playTone(1046.50, 'square', 0.6, 0.6);
+            }
+        };
+
+        // --- COMPONENTE DE CONFETI (Ahora global) ---
+        const Confetti = () => {
+            const [particles, setParticles] = useState([]);
+
+            useEffect(() => {
+                const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffae00'];
+                // Aumentamos cantidad de partículas para llenar la pantalla
+                const newParticles = Array.from({ length: 100 }).map((_, i) => ({
+                    id: i,
+                    left: Math.random() * 100 + 'vw',
+                    bg: colors[Math.floor(Math.random() * colors.length)],
+                    delay: Math.random() * 1 + 's', // Caen más rápido al inicio
+                    duration: Math.random() * 3 + 2 + 's',
+                    size: Math.random() * 8 + 8 + 'px' // Tamaños variados
+                }));
+                setParticles(newParticles);
+            }, []);
+
+            return React.createElement(React.Fragment, null,
+                particles.map(p => 
+                    React.createElement("div", {
+                        key: p.id,
+                        className: "confetti",
+                        style: {
+                            left: p.left,
+                            backgroundColor: p.bg,
+                            width: p.size,
+                            height: p.size,
+                            animation: `fall ${p.duration} linear ${p.delay} infinite`
+                        }
+                    })
+                )
+            );
+        };
+
+        const MathTriviaGame = () => {
+            // --- Estados ---
+            const [gameState, setGameState] = useState('menu');
+            const [difficulty, setDifficulty] = useState('easy');
+            const [score, setScore] = useState(0);
+            const [timeLeft, setTimeLeft] = useState(60);
+            const [currentProblem, setCurrentProblem] = useState(null);
+            const [options, setOptions] = useState([]);
+            const [highScores, setHighScores] = useState([]);
+            const [playerName, setPlayerName] = useState('');
+            const [lastResult, setLastResult] = useState(null);
+            const [soundEnabled, setSoundEnabled] = useState(true);
+            const [isNewRecord, setIsNewRecord] = useState(false);
+
+            const timerRef = useRef(null);
+
+            // --- Configuración ---
+            const difficultyConfig = {
+                easy: { label: 'Fácil', color: 'bg-green-500', description: 'Sumas y restas', bonus: 1 },
+                medium: { label: 'Medio', color: 'bg-yellow-500', description: 'Mix operaciones', bonus: 2 },
+                hard: { label: 'Difícil', color: 'bg-red-500', description: 'Complejo', bonus: 3 }
+            };
+
+            useEffect(() => {
+                const savedScores = localStorage.getItem('mathTriviaHighScores');
+                if (savedScores) setHighScores(JSON.parse(savedScores));
+                document.body.style.visibility = 'visible';
+            }, []);
+
+            // --- Lógica del Juego ---
+            const generateProblem = (diff) => {
+                let num1, num2, operator, answer, symbol;
+                const ops = diff === 'easy' ? ['+', '-'] : diff === 'medium' ? ['+', '-', '*'] : ['+', '-', '*', '/'];
+                operator = ops[Math.floor(Math.random() * ops.length)];
+
+                switch (operator) {
+                    case '+':
+                        symbol = '+';
+                        num1 = Math.floor(Math.random() * (diff === 'easy' ? 20 : diff === 'medium' ? 90 : 500)) + (diff === 'easy' ? 1 : 10);
+                        num2 = Math.floor(Math.random() * (diff === 'easy' ? 20 : diff === 'medium' ? 90 : 500)) + (diff === 'easy' ? 1 : 10);
+                        answer = num1 + num2;
+                        break;
+                    case '-':
+                        symbol = '-';
+                        num1 = Math.floor(Math.random() * (diff === 'easy' ? 20 : 100)) + 5;
+                        num2 = Math.floor(Math.random() * num1);
+                        answer = num1 - num2;
+                        break;
+                    case '*':
+                        symbol = '×';
+                        num1 = Math.floor(Math.random() * 12) + 2;
+                        num2 = Math.floor(Math.random() * 12) + 2;
+                        answer = num1 * num2;
+                        break;
+                    case '/':
+                        symbol = '÷';
+                        answer = Math.floor(Math.random() * 12) + 2;
+                        num2 = Math.floor(Math.random() * 10) + 2;
+                        num1 = answer * num2;
+                        break;
+                }
+                return { display: `${num1} ${symbol} ${num2}`, answer };
+            };
+
+            const generateOptions = (correctAnswer) => {
+                const opts = new Set([correctAnswer]);
+                while (opts.size < 4) {
+                    const offset = (Math.floor(Math.random() * 5) + 1) * (Math.random() > 0.5 ? 1 : -1);
+                    if (correctAnswer + offset !== correctAnswer) opts.add(correctAnswer + offset);
+                }
+                return Array.from(opts).sort(() => Math.random() - 0.5);
+            };
+
+            const nextTurn = () => {
+                const problem = generateProblem(difficulty);
+                setCurrentProblem(problem);
+                setOptions(generateOptions(problem.answer));
+            };
+
+            // --- Gestión de Tiempo y Sonido ---
+            const startGame = () => {
+                if(soundEnabled) soundSystem.init();
+                setScore(0);
+                setTimeLeft(60);
+                setGameState('playing');
+                setIsNewRecord(false);
+                nextTurn();
+                
+                if (timerRef.current) clearInterval(timerRef.current);
+                
+                timerRef.current = setInterval(() => {
+                    setTimeLeft((prev) => {
+                        if (prev <= 1) {
+                            endGameCheck(score); // Usar el score del closure puede estar desactualizado, cuidado. Mejor usar ref o pasar.
+                            return 0;
+                        }
+                        if (soundEnabled) {
+                            if (prev <= 11) soundSystem.playTick(true);
+                            else soundSystem.playTick(false);
+                        }
+                        return prev - 1;
+                    });
+                }, 1000);
+            };
+
+            // Necesitamos un ref para el score actual dentro del intervalo
+            const scoreRef = useRef(score);
+            useEffect(() => { scoreRef.current = score; }, [score]);
+
+            const endGameCheck = () => {
+                clearInterval(timerRef.current);
+                const finalScore = scoreRef.current;
+                setGameState('gameover');
+                
+                const topScore = highScores.length > 0 ? highScores[0].score : 0;
+                if (finalScore > topScore) {
+                    setIsNewRecord(true);
+                    if (soundEnabled) soundSystem.playWin();
+                } else {
+                    if (soundEnabled) soundSystem.playGameOver();
+                }
+            };
+
+            const handleAnswer = (selectedOption) => {
+                if (selectedOption === currentProblem.answer) {
+                    const points = difficultyConfig[difficulty].bonus * 10;
+                    setScore(prev => prev + points);
+                    setLastResult('correct');
+                    if (soundEnabled) soundSystem.playCorrect();
+                } else {
+                    setTimeLeft(prev => Math.max(0, prev - 5));
+                    setLastResult('wrong');
+                    if (soundEnabled) soundSystem.playWrong();
+                }
+                setTimeout(() => setLastResult(null), 300);
+                nextTurn();
+            };
+
+            const saveHighScore = (e) => {
+                e.preventDefault();
+                if (!playerName.trim()) return;
+                const newScore = {
+                    id: Date.now(),
+                    name: playerName,
+                    score: score,
+                    difficulty: difficultyConfig[difficulty].label,
+                    date: new Date().toLocaleDateString()
+                };
+                const newHighScores = [...highScores, newScore].sort((a, b) => b.score - a.score).slice(0, 10);
+                setHighScores(newHighScores);
+                localStorage.setItem('mathTriviaHighScores', JSON.stringify(newHighScores));
+                setGameState('menu');
+                setPlayerName('');
+            };
+
+            // --- Renders ---
+            const renderMenu = () => (
+                React.createElement("div", { className: "flex flex-col items-center w-full max-w-md animate-fade-in space-y-6 relative z-10" },
+                    React.createElement("div", { className: "text-center mb-4" },
+                        React.createElement(Brain, { className: "w-16 h-16 text-indigo-600 mx-auto mb-2" }),
+                        React.createElement("h1", { className: "text-4xl font-extrabold text-gray-800" }, "Mente Maestra"),
+                        React.createElement("p", { className: "text-gray-500" }, "Desafío Matemático de 60s")
+                    ),
+                    React.createElement("div", { className: "w-full bg-white p-6 rounded-2xl shadow-xl border border-gray-100" },
+                        React.createElement("div", { className: "flex justify-end mb-2" },
+                            React.createElement("button", { 
+                                onClick: () => setSoundEnabled(!soundEnabled),
+                                className: "text-gray-400 hover:text-indigo-600"
+                            }, soundEnabled ? React.createElement(Volume2, { size: 20 }) : React.createElement(VolumeX, { size: 20 }))
+                        ),
+                        React.createElement("label", { className: "block text-sm font-bold text-gray-700 mb-3 uppercase tracking-wider" }, "Selecciona Dificultad"),
+                        React.createElement("div", { className: "grid grid-cols-1 gap-3 mb-6" },
+                            Object.entries(difficultyConfig).map(([key, config]) => (
+                                React.createElement("button", {
+                                    key: key,
+                                    onClick: () => setDifficulty(key),
+                                    className: `p-4 rounded-xl border-2 transition-all duration-200 flex items-center justify-between group ${difficulty === key ? `border-${config.color.split('-')[1]}-500 bg-${config.color.split('-')[1]}-50` : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`
+                                },
+                                    React.createElement("div", { className: "text-left" },
+                                        React.createElement("span", { className: `font-bold text-lg block group-hover:scale-105 transition-transform ${difficulty === key ? 'text-gray-900' : 'text-gray-600'}` }, config.label),
+                                        React.createElement("span", { className: "text-xs text-gray-500" }, config.description)
+                                    ),
+                                    difficulty === key && React.createElement(CheckCircle2, { className: `w-6 h-6 text-${config.color.split('-')[1]}-600` })
+                                )
+                            ))
+                        ),
+                        React.createElement("button", {
+                            onClick: startGame,
+                            className: "w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-8 rounded-xl text-xl shadow-lg transform transition hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+                        }, React.createElement(Play, { className: "w-6 h-6 fill-current" }), "EMPEZAR PARTIDA")
+                    ),
+                    highScores.length > 0 && React.createElement("div", { className: "w-full bg-white p-6 rounded-2xl shadow-lg border border-gray-100 mt-4" },
+                        React.createElement("h3", { className: "text-lg font-bold text-gray-800 mb-4 flex items-center gap-2" },
+                            React.createElement(Trophy, { className: "w-5 h-5 text-yellow-500" }), "Ranking Local"
+                        ),
+                        React.createElement("div", { className: "space-y-2 max-h-48 overflow-y-auto" },
+                            highScores.map((s, idx) => (
+                                React.createElement("div", { key: s.id, className: "flex justify-between items-center p-2 bg-gray-50 rounded-lg text-sm" },
+                                    React.createElement("div", { className: "flex items-center gap-2" },
+                                        React.createElement("span", { className: `font-bold w-5 ${idx < 3 ? 'text-yellow-600' : 'text-gray-400'}` }, `#${idx + 1}`),
+                                        React.createElement("span", { className: "font-medium text-gray-700 truncate max-w-[100px]" }, s.name)
+                                    ),
+                                    React.createElement("div", { className: "flex items-center gap-3" },
+                                        React.createElement("span", { className: "text-xs px-2 py-0.5 bg-gray-200 rounded-full text-gray-600" }, s.difficulty),
+                                        React.createElement("span", { className: "font-bold text-indigo-600" }, `${s.score} pts`)
+                                    )
+                                )
+                            ))
+                        )
+                    )
+                )
+            );
+
+            const renderGame = () => (
+                // Eliminamos la clase 'urgent-pulse' de aquí, ya que ahora está en el body/contenedor principal
+                React.createElement("div", { className: `w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-300 relative z-10` },
+                    React.createElement("div", { className: "flex justify-between items-center mb-6 bg-white p-4 rounded-2xl shadow-md" },
+                        React.createElement("div", { className: "flex flex-col" },
+                            React.createElement("span", { className: "text-xs font-bold text-gray-400 uppercase" }, "Puntos"),
+                            React.createElement("span", { className: "text-2xl font-black text-indigo-600" }, score)
+                        ),
+                        React.createElement("div", { className: "flex flex-col items-end" },
+                            React.createElement("span", { className: `text-xs font-bold uppercase flex items-center gap-1 ${timeLeft <= 10 ? 'text-red-500' : 'text-gray-400'}` },
+                                React.createElement(Clock, { className: "w-3 h-3" }), "Tiempo"
+                            ),
+                            React.createElement("span", { className: `text-2xl font-black ${timeLeft <= 10 ? 'text-red-600 scale-110' : 'text-gray-700'} transition-all` }, `${timeLeft}s`)
+                        )
+                    ),
+                    React.createElement("div", { className: `relative bg-white rounded-3xl shadow-xl p-8 mb-6 flex flex-col items-center justify-center min-h-[200px] border-b-4 border-gray-200 transition-all duration-200 ${lastResult === 'correct' ? 'ring-4 ring-green-400 bg-green-50' : ''} ${lastResult === 'wrong' ? 'ring-4 ring-red-400 bg-red-50 shake' : ''}` },
+                        React.createElement("span", { className: "text-sm text-gray-400 font-medium mb-2 uppercase tracking-widest" }, "Resuelve"),
+                        React.createElement("h2", { className: "text-6xl font-black text-gray-800 tracking-tight text-center" }, currentProblem?.display),
+                        lastResult === 'correct' && React.createElement("div", { className: "absolute inset-0 flex items-center justify-center bg-green-500/10 rounded-3xl" },
+                            React.createElement(CheckCircle2, { className: "w-24 h-24 text-green-500 opacity-50 animate-ping" })
+                        ),
+                        lastResult === 'wrong' && React.createElement("div", { className: "absolute inset-0 flex items-center justify-center bg-red-500/10 rounded-3xl" },
+                            React.createElement(X, { className: "w-24 h-24 text-red-500 opacity-50 animate-ping" })
+                        )
+                    ),
+                    React.createElement("div", { className: "grid grid-cols-2 gap-4" },
+                        options.map((opt, idx) => (
+                            React.createElement("button", {
+                                key: idx,
+                                onClick: () => handleAnswer(opt),
+                                className: "bg-white hover:bg-indigo-50 active:bg-indigo-100 text-gray-800 font-bold text-3xl py-8 rounded-2xl shadow-md border-b-4 border-gray-200 active:border-b-0 active:translate-y-1 transition-all"
+                            }, opt)
+                        ))
+                    )
+                )
+            );
+
+            const renderGameOver = () => (
+                React.createElement("div", { className: "w-full max-w-md bg-white p-8 rounded-3xl shadow-2xl text-center animate-in zoom-in duration-300 relative z-10" },
+                    React.createElement("div", { className: "flex justify-center mb-4" },
+                        isNewRecord 
+                            ? React.createElement(PartyPopper, { className: "w-24 h-24 text-yellow-500 animate-bounce" })
+                            : React.createElement(Award, { className: "w-20 h-20 text-gray-400" })
+                    ),
+                    React.createElement("h2", { className: "text-3xl font-bold text-gray-800 mb-2" }, isNewRecord ? "¡NUEVO RÉCORD!" : "¡Tiempo Agotado!"),
+                    React.createElement("p", { className: "text-gray-500 mb-6" }, isNewRecord ? "¡Has superado la mejor puntuación!" : "¿Qué tan rápida es tu mente?"),
+                    React.createElement("div", { className: `p-6 rounded-2xl mb-8 ${isNewRecord ? 'bg-yellow-50 border-2 border-yellow-200' : 'bg-indigo-50'}` },
+                        React.createElement("span", { className: "block text-sm font-bold text-indigo-400 uppercase mb-1" }, "Puntuación Final"),
+                        React.createElement("span", { className: "block text-6xl font-black text-indigo-600" }, score)
+                    ),
+                    React.createElement("form", { onSubmit: saveHighScore, className: "mb-6" },
+                        React.createElement("label", { className: "block text-left text-sm font-bold text-gray-700 mb-2" }, "Ingresa tu nombre:"),
+                        React.createElement("input", {
+                            type: "text",
+                            maxLength: "12",
+                            placeholder: "Tu Nombre",
+                            value: playerName,
+                            onChange: (e) => setPlayerName(e.target.value),
+                            className: "w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none text-lg font-bold text-center mb-4",
+                            autoFocus: true
+                        }),
+                        React.createElement("button", {
+                            type: "submit",
+                            disabled: !playerName.trim(),
+                            className: "w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-bold py-3 px-6 rounded-xl transition-colors"
+                        }, "Guardar Puntuación")
+                    ),
+                    React.createElement("button", {
+                        onClick: () => setGameState('menu'),
+                        className: "flex items-center justify-center gap-2 w-full text-gray-500 hover:text-gray-800 font-bold py-2 transition-colors"
+                    }, React.createElement(RotateCcw, { className: "w-5 h-5" }), "Volver al Menú Principal")
+                )
+            );
+
+            // RENDERIZADO PRINCIPAL
+            // Aplicamos la clase 'urgent-pulse-bg' al contenedor padre de toda la pantalla
+            return React.createElement("div", { className: `min-h-screen font-sans selection:bg-indigo-200 selection:text-indigo-900 flex items-center justify-center p-4 transition-colors duration-500 ${timeLeft <= 10 && gameState === 'playing' ? 'urgent-pulse-bg' : 'bg-gray-100 text-gray-900'}` },
+                
+                // Confeti Global (Ahora está en el nivel superior, no dentro de una tarjeta)
+                isNewRecord && gameState === 'gameover' && React.createElement(Confetti),
+
+                React.createElement("div", { className: "fixed inset-0 pointer-events-none opacity-5 overflow-hidden" },
+                    React.createElement(Calculator, { className: "absolute top-10 left-10 w-32 h-32 rotate-12" }),
+                    React.createElement(Brain, { className: "absolute bottom-20 right-10 w-40 h-40 -rotate-12" }),
+                ),
+                gameState === 'menu' && renderMenu(),
+                gameState === 'playing' && renderGame(),
+                gameState === 'gameover' && renderGameOver()
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(React.createElement(MathTriviaGame));
+    </script>
+</body>
+</html>
