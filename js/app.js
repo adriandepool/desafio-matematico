@@ -26,6 +26,10 @@ const MathTriviaGame = () => {
     const timerRef = useRef(null);
     const t = translations[lang];
 
+    // --- CORRECCIÓN: Definir isUrgent AQUÍ, al principio ---
+    // Así todas las funciones de abajo pueden leerla sin error
+    const isUrgent = gameMode !== 'zen' && timeLeft !== null && timeLeft <= 10;
+
     const modesConfig = {
         classic: { label: t.modes.classic.label, icon: Clock, desc: t.modes.classic.desc },
         survival: { label: t.modes.survival.label, icon: Zap, desc: t.modes.survival.desc },
@@ -114,7 +118,7 @@ const MathTriviaGame = () => {
     const endGameCheck = () => {
         clearInterval(timerRef.current);
         setGameState('gameover');
-        let finalScore = gameMode === 'multi' ? Math.max(p1State.score, p2State.score) : p1State.score; // Use state directly here for simplicity
+        let finalScore = gameMode === 'multi' ? Math.max(p1State.score, p2State.score) : p1State.score;
         const topScore = highScores.length > 0 ? highScores[0].score : 0;
         if (gameMode !== 'zen' && gameMode !== 'multi' && finalScore > topScore) {
             setIsNewRecord(true);
